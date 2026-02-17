@@ -1,0 +1,99 @@
+name: Trello Sync
+
+on:
+  push:
+    branches:
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, synchronize, closed]
+
+jobs:
+  trello-move:
+    runs-on: ubuntu-latest
+
+    env:
+      TRELLO_KEY: ${{ secrets.TRELLO_KEY }}
+      TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
+
+      TRELLO_LIST_BACKLOG_ID: ${{ secrets.TRELLO_LIST_BACKLOG_ID }}
+      TRELLO_LIST_IN_PROGRESS_ID: ${{ secrets.TRELLO_LIST_IN_PROGRESS_ID }}
+      TRELLO_LIST_REVIEWQA_ID: ${{ secrets.TRELLO_LIST_REVIEWQA_ID }}
+      TRELLO_LIST_DONE_ID: ${{ secrets.TRELLO_LIST_DONE_ID }}
+
+    steps:
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Move Trello card based on GitHub event
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TRELLO_ID=""
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            echo "Push branch: $BRANCH"
+            TRELLO_ID=$(echo "$BRANCH" | grep -oE 'TRELLO-[0-9]{3}' | head -n 1 || true)
+            TARGET_LIST="${TRELLO_LIST_IN_PROGRESS_ID}"
+            TARGET_NAME="In Progress"
+          else
+            TITLE="${{ github.event.pull_request.title }}"
+            echo "PR title: $TITLE"
+            TRELLO_ID=$(echo "$TITLE" | grep -oE 'TRELLO-[0-9]{3}' | head -n 1 || true)
+
+            if [ "${{ github.event.action }}" != "closed" ]; then
+              TARGET_LIST="${TRELLO_LIST_REVIEWQA_ID}"
+              TARGET_NAME="Review/QA"
+            else
+              if [ "${{ github.event.pull_request.merged }}" != "true" ]; then
+                echo "PR closed but not merged. Skipping."
+                exit 0
+              fi
+              TARGET_LIST="${TRELLO_LIST_DONE_ID}"
+              TARGET_NAME="Done"
+            fi
+          fi
+
+          if [ -z "$TRELLO_ID" ]; then
+            echo "No Trello ID found. Ensure branch/PR title includes TRELLO-###"
+            exit 0
+          fi
+
+          echo "Detected Trello ID: $TRELLO_ID"
+          echo "Target list: $TARGET_NAME"
+
+          LISTS=("${TRELLO_LIST_BACKLOG_ID}" "${TRELLO_LIST_IN_PROGRESS_ID}" "${TRELLO_LIST_REVIEWQA_ID}" "${TRELLO_LIST_DONE_ID}")
+
+          CARD_ID=""
+
+          for LID in "${LISTS[@]}"; do
+            echo "Searching list $LID..."
+            CARDS_JSON=$(curl -sS \
+              "https://api.trello.com/1/lists/${LID}/cards?fields=id,name&key=${TRELLO_KEY}&token=${TRELLO_TOKEN}")
+
+            FOUND=$(echo "$CARDS_JSON" | jq -r --arg tid "$TRELLO_ID" '.[] | select(.name | contains($tid)) | .id' | head -n 1 || true)
+
+            if [ -n "$FOUND" ]; then
+              CARD_ID="$FOUND"
+              break
+            fi
+          done
+
+          if [ -z "$CARD_ID" ]; then
+            echo "Card containing $TRELLO_ID not found. Ensure the card title includes the ID."
+            exit 1
+          fi
+
+          echo "Found card id: $CARD_ID. Moving to $TARGET_NAME..."
+
+          curl -sS -X PUT \
+            "https://api.trello.com/1/cards/${CARD_ID}?idList=${TARGET_LIST}&key=${TRELLO_KEY}&token=${TRELLO_TOKEN}" \
+            | jq -r '"Moved: " + .name + " -> list " + .idList'
+
+          echo "Done."
+
