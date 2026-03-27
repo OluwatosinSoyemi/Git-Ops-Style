@@ -171,8 +171,7 @@ Trello and Git are correlated in this project through the use of unique task IDs
 
 For example, a branch might be named `feature/TRELLO-002 Add 8th test`, and commits within that branch would include messages like `[TRELLO-002] Add 8th test for sum default behaviour`. This makes it easy to trace a piece of code back to the task that required it. It also improves accountability, as it is clear which task each change belongs to.
 
-Additionally, Trello cards are moved across workflow stages such as Backlog, In Progress, Review/QA, and Done. This reflects the current status of the task and aligns with the Git workflow. Even though this process is manual, it effectively simulates real-world development practices.
+Additionally, Trello cards reflect workflow stages such as Backlog, In Progress, Review/QA, and Done. These stages align with development actions performed in Git, such as pushing code, opening pull requests, and merging changes. This ensures that the status of each task is consistently synchronized with the development process.
 
 This correlation improves transparency, traceability, and organization. It allows developers and reviewers to clearly understand the purpose of each change and ensures that all work is properly tracked.
-
 
